@@ -252,11 +252,23 @@ struct xwl_tablet_pad {
     struct xorg_list pad_group_list;
 };
 
+struct xwl_mode {
+    struct xorg_list link;
+    int width;
+    int height;
+    int refresh;
+    RRModePtr randr_mode;
+};
+
 struct xwl_output {
     struct xorg_list link;
     struct wl_output *output;
     uint32_t server_output_id;
     struct xwl_screen *xwl_screen;
+    struct xorg_list modes_list;
+    Bool binding;
+    int num_modes;
+    int preferred_mode;
     RROutputPtr randr_output;
     RRCrtcPtr randr_crtc;
     int32_t x, y, width, height, refresh;

@@ -100,10 +100,69 @@ output_handle_geometry(void *data, struct wl_output *wl_output, int x, int y,
 }
 
 static void
+output_add_new_mode(struct xwl_output *xwl_output, uint32_t flags,
+                    int width, int height, int refresh)
+{
+    struct xwl_mode *xwl_mode;
+
+    xwl_mode = calloc(1, sizeof *xwl_mode);
+    if (!xwl_mode)
+        FatalError("Failed to create new mode");
+
+    xwl_mode->width = width;
+    xwl_mode->height = height;
+    xwl_mode->refresh = refresh;
+    xwl_mode->randr_mode = xwayland_cvt(width, height, refresh / 1000.0, 0, 0);
+    xorg_list_append(&xwl_mode->link, &xwl_output->modes_list);
+
+    xwl_output->num_modes++;
+    if (flags & WL_OUTPUT_MODE_PREFERRED)
+        xwl_output->preferred_mode = xwl_output->num_modes;
+}
+
+static RRModePtr
+output_get_current_rr_mode(struct xwl_output *xwl_output)
+{
+    struct xwl_mode *xwl_mode;
+
+    xorg_list_for_each_entry(xwl_mode, &xwl_output->modes_list, link) {
+        if (xwl_mode->width == xwl_output->width &&
+            xwl_mode->height == xwl_output->height &&
+            xwl_mode->refresh == xwl_output->refresh)
+            return xwl_mode->randr_mode;
+    }
+
+    FatalError("Cannot find current mode [%ix%i]@%.2f",
+               xwl_output->width, xwl_output->height, xwl_output->refresh / 1000.0);
+}
+
+static RRModePtr *
+output_get_all_rr_modes(struct xwl_output *xwl_output)
+{
+    struct xwl_mode *xwl_mode;
+    RRModePtr *rr_modes;
+    int i = 0;
+
+    rr_modes = xallocarray(xwl_output->num_modes, sizeof(RRModePtr));
+    if (!rr_modes)
+        FatalError("Failed to create the list of RR modes");
+
+    xorg_list_for_each_entry(xwl_mode, &xwl_output->modes_list, link) {
+        rr_modes[i++] = xwl_mode->randr_mode;
+    }
+
+    return rr_modes;
+}
+
+static void
 output_handle_mode(void *data, struct wl_output *wl_output, uint32_t flags,
                    int width, int height, int refresh)
 {
     struct xwl_output *xwl_output = data;
+
+    /* Add available modes during the binding phase */
+    if (xwl_output->binding)
+        output_add_new_mode (xwl_output, flags, width, height, refresh);
 
     if (!(flags & WL_OUTPUT_MODE_CURRENT))
         return;
@@ -204,12 +263,21 @@ output_handle_done(void *data, struct wl_output *wl_output)
     struct xwl_output *it, *xwl_output = data;
     struct xwl_screen *xwl_screen = xwl_output->xwl_screen;
     int width = 0, height = 0, has_this_output = 0;
-    RRModePtr randr_mode;
+    RRModePtr randr_current_mode;
 
-    randr_mode = xwayland_cvt(xwl_output->width, xwl_output->height,
-                              xwl_output->refresh / 1000.0, 0, 0);
-    RROutputSetModes(xwl_output->randr_output, &randr_mode, 1, 1);
-    RRCrtcNotify(xwl_output->randr_crtc, randr_mode,
+    if (xwl_output->binding) {
+        RRModePtr *randr_modes;
+
+        randr_modes = output_get_all_rr_modes(xwl_output);
+        RROutputSetModes(xwl_output->randr_output, randr_modes,
+                         xwl_output->num_modes, xwl_output->preferred_mode);
+        free(randr_modes);
+        /* We're done with binding. do not expect further modes to list */
+        xwl_output->binding = FALSE;
+    }
+
+    randr_current_mode = output_get_current_rr_mode(xwl_output);
+    RRCrtcNotify(xwl_output->randr_crtc, randr_current_mode,
                  xwl_output->x, xwl_output->y,
                  xwl_output->rotation, NULL, 1, &xwl_output->randr_output);
 
@@ -268,6 +336,7 @@ xwl_output_create(struct xwl_screen *xwl_screen, uint32_t id)
         goto err;
     }
 
+    xwl_output->binding = TRUE;
     xwl_output->server_output_id = id;
     wl_output_add_listener(xwl_output->output, &output_listener, xwl_output);
 
@@ -287,7 +356,7 @@ xwl_output_create(struct xwl_screen *xwl_screen, uint32_t id)
         ErrorF("Failed creating RandR Output\n");
         goto err;
     }
-
+    xorg_list_init(&xwl_output->modes_list);
     RRCrtcGammaSetSize(xwl_output->randr_crtc, 256);
     RROutputSetCrtcs(xwl_output->randr_output, &xwl_output->randr_crtc, 1);
     RROutputSetConnection(xwl_output->randr_output, RR_Connected);
@@ -315,7 +384,13 @@ xwl_output_remove(struct xwl_output *xwl_output)
 {
     struct xwl_output *it;
     struct xwl_screen *xwl_screen = xwl_output->xwl_screen;
+    struct xwl_mode *xwl_mode, *next_xwl_mode;
     int width = 0, height = 0;
+
+    xorg_list_for_each_entry_safe(xwl_mode, next_xwl_mode, &xwl_output->modes_list, link) {
+        RRModeDestroy(xwl_mode->randr_mode);
+        free(xwl_mode);
+    }
 
     RRCrtcDestroy(xwl_output->randr_crtc);
     RROutputDestroy(xwl_output->randr_output);
