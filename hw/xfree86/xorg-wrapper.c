@@ -202,6 +202,9 @@ int main(int argc, char *argv[])
     int needs_root_rights = -1;
     char *const empty_envp[1] = { NULL, };
 
+    if (getenv("XORG_RUN_AS_USER_OK") == NULL)
+        needs_root_rights = 1;
+
     progname = argv[0];
 
     parse_config(&allowed, &needs_root_rights);
