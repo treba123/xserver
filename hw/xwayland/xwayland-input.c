@@ -34,6 +34,7 @@
 #include <inpututils.h>
 #include <mipointer.h>
 #include <mipointrst.h>
+#include "tablet-unstable-v2-client-protocol.h"
 
 /* Copied from mipointer.c */
 #define MIPOINTER(dev) \
