@@ -327,6 +327,12 @@ xwl_realize_window(WindowPtr window)
     struct xwl_window *xwl_window;
     struct wl_region *region;
     Bool ret;
+    BoxPtr bptr;
+    int x, y;
+
+    bptr = RegionRects(&window->winSize);
+    x = bptr->x2;
+    y = bptr->y2;
 
     xwl_screen = xwl_screen_get(screen);
 
@@ -395,6 +401,8 @@ xwl_realize_window(WindowPtr window)
 
     wl_surface_set_user_data(xwl_window->surface, xwl_window);
 
+    xwl_check_fake_mode_setting(xwl_window);
+
     xwl_window->damage =
         DamageCreate(damage_report, damage_destroy, DamageReportNonEmpty,
                      FALSE, screen, xwl_window);
@@ -454,6 +462,12 @@ xwl_unrealize_window(WindowPtr window)
     xwl_window = xwl_window_get(window);
     if (!xwl_window)
         return ret;
+
+    if(xwl_window->viewport)
+    {
+        wp_viewport_destroy(xwl_window->viewport);
+        xwl_window->viewport = NULL;
+    }
 
     wl_surface_destroy(xwl_window->surface);
     if (RegionNotEmpty(DamageRegion(xwl_window->damage)))
@@ -552,6 +566,9 @@ registry_global(void *data, struct wl_registry *registry, uint32_t id,
     else if (strcmp(interface, "wl_output") == 0 && version >= 2) {
         if (xwl_output_create(xwl_screen, id))
             xwl_screen->expecting_event++;
+    }
+    else if (strcmp(interface, "wp_viewporter") == 0) {
+        xwl_screen->viewporter = wl_registry_bind(registry, id, &wp_viewporter_interface, 1);
     }
 #ifdef GLAMOR_HAS_GBM
     else if (xwl_screen->glamor &&
@@ -893,6 +910,45 @@ static const ExtensionModule xwayland_extensions[] = {
     { xwlVidModeExtensionInit, XF86VIDMODENAME, &noXFree86VidModeExtension },
 #endif
 };
+
+void
+xwl_check_fake_mode_setting(struct xwl_window *xwl_window)
+{
+    BoxPtr bptr;
+    int x, y;
+
+    bptr = RegionRects(&xwl_window->window->winSize);
+    x = bptr->x2;
+    y = bptr->y2;
+
+    if(x == 640 || x == 800 || x == 1024)
+    {
+        fprintf(stderr, "XWAYLAND: window: x2: %d, y2: %d\n", x, y);
+        fprintf(stderr, "XWAYLAND: set viewporter\n");
+
+        if(xwl_window->viewport)
+        {
+          fprintf(stderr, "XWAYLAND: viewporter already exists. Removing\n");
+          wp_viewport_destroy(xwl_window->viewport);
+          xwl_window->viewport = NULL;
+        }
+
+        xwl_window->viewport = wp_viewporter_get_viewport(xwl_window->xwl_screen->viewporter,
+                                                          xwl_window->surface);
+        wp_viewport_set_source(xwl_window->viewport,
+                               wl_fixed_from_int(0),
+                               wl_fixed_from_int(0),
+                               wl_fixed_from_int(x),
+                               wl_fixed_from_int(y-27));
+        wp_viewport_set_destination(xwl_window->viewport, 1366, 768);
+    }
+    else if(xwl_window->viewport)
+    {
+        fprintf(stderr, "XWAYLAND: remove old viewporter\n");
+        wp_viewport_destroy(xwl_window->viewport);
+        xwl_window->viewport = NULL;
+    }
+}
 
 void
 InitOutput(ScreenInfo * screen_info, int argc, char **argv)

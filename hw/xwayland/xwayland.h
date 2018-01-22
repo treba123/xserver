@@ -45,6 +45,7 @@
 #include "relative-pointer-unstable-v1-client-protocol.h"
 #include "pointer-constraints-unstable-v1-client-protocol.h"
 #include "tablet-unstable-v2-client-protocol.h"
+#include "viewporter-client-protocol.h"
 
 struct xwl_screen {
     int width;
@@ -82,6 +83,7 @@ struct xwl_screen {
     struct wl_shell *shell;
     struct zwp_relative_pointer_manager_v1 *relative_pointer_manager;
     struct zwp_pointer_constraints_v1 *pointer_constraints;
+    struct wp_viewporter *viewporter;
 
     uint32_t serial;
 
@@ -106,6 +108,7 @@ struct xwl_screen {
 struct xwl_window {
     struct xwl_screen *xwl_screen;
     struct wl_surface *surface;
+    struct wp_viewport *viewport;
     struct wl_shell_surface *shell_surface;
     WindowPtr window;
     DamagePtr damage;
@@ -342,5 +345,7 @@ Bool xwl_glamor_xv_init(ScreenPtr pScreen);
 #ifdef XF86VIDMODE
 void xwlVidModeExtensionInit(void);
 #endif
+
+void xwl_check_fake_mode_setting(struct xwl_window *xwl_window);
 
 #endif

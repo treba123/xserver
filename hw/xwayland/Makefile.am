@@ -58,7 +58,9 @@ Xwayland_built_sources +=					\
 	pointer-constraints-unstable-v1-client-protocol.h	\
 	pointer-constraints-unstable-v1-protocol.c		\
 	tablet-unstable-v2-client-protocol.h			\
-	tablet-unstable-v2-protocol.c
+	tablet-unstable-v2-protocol.c				\
+	viewporter-client-protocol.h				\
+	viewporter-protocol.c
 
 nodist_Xwayland_SOURCES = $(Xwayland_built_sources)
 CLEANFILES = $(Xwayland_built_sources)
@@ -84,6 +86,11 @@ pointer-constraints-unstable-v1-client-protocol.h : $(WAYLAND_PROTOCOLS_DATADIR)
 tablet-unstable-v2-protocol.c: $(WAYLAND_PROTOCOLS_DATADIR)/unstable/tablet/tablet-unstable-v2.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) code < $< > $@
 tablet-unstable-v2-client-protocol.h: $(WAYLAND_PROTOCOLS_DATADIR)/unstable/tablet/tablet-unstable-v2.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) client-header < $< > $@
+
+viewporter-protocol.c: $(WAYLAND_PROTOCOLS_DATADIR)/stable/viewporter/viewporter.xml
+	$(AM_V_GEN)$(WAYLAND_SCANNER) code < $< > $@
+viewporter-client-protocol.h: $(WAYLAND_PROTOCOLS_DATADIR)/stable/viewporter/viewporter.xml
 	$(AM_V_GEN)$(WAYLAND_SCANNER) client-header < $< > $@
 
 %-protocol.c : %.xml
