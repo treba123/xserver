@@ -530,11 +530,24 @@ xwl_screen_post_damage(struct xwl_screen *xwl_screen)
         if (!xwl_screen->glamor)
             buffer = xwl_shm_pixmap_get_wl_buffer(pixmap);
 
-        wl_surface_attach(xwl_window->surface, buffer, 0, 0);
-
         box = RegionExtents(region);
-        wl_surface_damage(xwl_window->surface, box->x1, box->y1,
-                          box->x2 - box->x1, box->y2 - box->y1);
+
+        /*fprintf(stderr, "XWAYLAND: wl_surface_damage: x1: %d, y1: %d, x2: %d, y2: %d, dx: %d, dy: %d\n",
+                (int)box->x1,
+                (int)box->y1,
+                (int)box->x2,
+                (int)box->y2,
+                (int)(box->x2 - box->x1),
+                (int)(box->y2 - box->y1));*/
+
+        if(xwl_window->xwl_screen->compositor_version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION)
+            wl_surface_damage_buffer(xwl_window->surface, box->x1, box->y1,
+                                      box->x2 - box->x1, box->y2 - box->y1);
+        else
+            wl_surface_damage(xwl_window->surface, box->x1, box->y1,
+                                      box->x2 - box->x1, box->y2 - box->y1);
+
+        wl_surface_attach(xwl_window->surface, buffer, 0, 0);
 
         xwl_window->frame_callback = wl_surface_frame(xwl_window->surface);
         wl_callback_add_listener(xwl_window->frame_callback, &frame_listener, xwl_window);
@@ -553,8 +566,11 @@ registry_global(void *data, struct wl_registry *registry, uint32_t id,
     struct xwl_screen *xwl_screen = data;
 
     if (strcmp(interface, "wl_compositor") == 0) {
+        if (version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION)
+            xwl_screen->compositor_version = WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION;
+
         xwl_screen->compositor =
-            wl_registry_bind(registry, id, &wl_compositor_interface, 1);
+            wl_registry_bind(registry, id, &wl_compositor_interface,xwl_screen->compositor_version);
     }
     else if (strcmp(interface, "wl_shm") == 0) {
         xwl_screen->shm = wl_registry_bind(registry, id, &wl_shm_interface, 1);
@@ -921,32 +937,40 @@ xwl_check_fake_mode_setting(struct xwl_window *xwl_window)
     x = bptr->x2;
     y = bptr->y2;
 
-    if(x == 640 || x == 800 || x == 1024)
+    if(xwl_window->xwl_screen->compositor_version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION
+        && xwl_window->xwl_screen->viewporter != NULL)
     {
-        fprintf(stderr, "XWAYLAND: window: x2: %d, y2: %d\n", x, y);
-        fprintf(stderr, "XWAYLAND: set viewporter\n");
-
-        if(xwl_window->viewport)
+        if(x == 640 || x == 800 || x == 1024)
         {
-          fprintf(stderr, "XWAYLAND: viewporter already exists. Removing\n");
-          wp_viewport_destroy(xwl_window->viewport);
-          xwl_window->viewport = NULL;
-        }
+            fprintf(stderr, "XWAYLAND: window: x2: %d, y2: %d\n", x, y);
+            fprintf(stderr, "XWAYLAND: set viewporter\n");
 
-        xwl_window->viewport = wp_viewporter_get_viewport(xwl_window->xwl_screen->viewporter,
-                                                          xwl_window->surface);
-        wp_viewport_set_source(xwl_window->viewport,
-                               wl_fixed_from_int(0),
-                               wl_fixed_from_int(0),
-                               wl_fixed_from_int(x),
-                               wl_fixed_from_int(y-27));
-        wp_viewport_set_destination(xwl_window->viewport, 1366, 768);
+            if(xwl_window->viewport)
+            {
+              fprintf(stderr, "XWAYLAND: viewporter already exists. Removing\n");
+              wp_viewport_destroy(xwl_window->viewport);
+              xwl_window->viewport = NULL;
+            }
+
+            xwl_window->viewport = wp_viewporter_get_viewport(xwl_window->xwl_screen->viewporter,
+                                                              xwl_window->surface);
+            wp_viewport_set_source(xwl_window->viewport,
+                                   wl_fixed_from_int(0),
+                                   wl_fixed_from_int(0),
+                                   wl_fixed_from_int(x),
+                                   wl_fixed_from_int(y-27));
+            wp_viewport_set_destination(xwl_window->viewport, 1366, 768);
+        }
+        else if(xwl_window->viewport)
+        {
+            fprintf(stderr, "XWAYLAND: remove old viewporter\n");
+            wp_viewport_destroy(xwl_window->viewport);
+            xwl_window->viewport = NULL;
+        }
     }
-    else if(xwl_window->viewport)
+    else
     {
-        fprintf(stderr, "XWAYLAND: remove old viewporter\n");
-        wp_viewport_destroy(xwl_window->viewport);
-        xwl_window->viewport = NULL;
+      fprintf(stderr, "XWAYLAND: viewporter not supported\n");
     }
 }
 

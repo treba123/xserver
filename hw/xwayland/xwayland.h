@@ -74,6 +74,7 @@ struct xwl_screen {
     struct xorg_list damage_window_list;
 
     int wayland_fd;
+    uint32_t compositor_version;
     struct wl_display *display;
     struct wl_registry *registry;
     struct wl_registry *input_registry;
