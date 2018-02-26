@@ -439,7 +439,29 @@ xwl_randr_crtc_set(ScreenPtr pScreen,
                    Rotation rotation,
                    int numOutputs, RROutputPtr * outputs)
 {
+    struct xwl_screen *xwl_screen = xwl_screen_get(pScreen);
     RRCrtcChanged(crtc, TRUE);
+
+    if(mode->mode.width == 1366 && mode->mode.height == 768)
+    {
+        xwl_screen->current_emulated_width = 0;
+        xwl_screen->current_emulated_height = 0;
+    }
+    else
+    {
+        xwl_screen->current_emulated_width = mode->mode.width;
+        xwl_screen->current_emulated_height = mode->mode.height;
+    }
+    ErrorF("XWAYLAND: xwl_randr_crtc_set: %ux%u\n", mode->mode.width, mode->mode.height);
+
+    struct xwl_seat *xwl_seat = xwl_screen_get_default_seat(xwl_screen_get(pScreen));
+    if(xwl_seat && xwl_seat->focus_window)
+    {
+        BoxPtr bptr = RegionRects(&xwl_seat->focus_window->window->winSize);
+        unsigned int width  = bptr->x2 - xwl_seat->focus_window->window->drawable.x;
+        unsigned int height = bptr->y2 - xwl_seat->focus_window->window->drawable.y;
+        xwl_check_fake_mode_setting(xwl_seat->focus_window, width, height);
+    }
     return TRUE;
 }
 

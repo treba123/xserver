@@ -158,7 +158,7 @@ xwl_window_from_window(WindowPtr window)
     return NULL;
 }
 
-static struct xwl_seat *
+struct xwl_seat *
 xwl_screen_get_default_seat(struct xwl_screen *xwl_screen)
 {
     return container_of(xwl_screen->seat_list.prev,
@@ -327,12 +327,6 @@ xwl_realize_window(WindowPtr window)
     struct xwl_window *xwl_window;
     struct wl_region *region;
     Bool ret;
-    BoxPtr bptr;
-    int x, y;
-
-    bptr = RegionRects(&window->winSize);
-    x = bptr->x2;
-    y = bptr->y2;
 
     xwl_screen = xwl_screen_get(screen);
 
@@ -401,7 +395,7 @@ xwl_realize_window(WindowPtr window)
 
     wl_surface_set_user_data(xwl_window->surface, xwl_window);
 
-    xwl_check_fake_mode_setting(xwl_window);
+    //xwl_check_fake_mode_setting(xwl_window);
 
     xwl_window->damage =
         DamageCreate(damage_report, damage_destroy, DamageReportNonEmpty,
@@ -483,6 +477,30 @@ xwl_unrealize_window(WindowPtr window)
     return ret;
 }
 
+static void
+xwl_resize_window(WindowPtr window,
+                  int x, int y,
+                  unsigned int width, unsigned int height,
+                  WindowPtr sib)
+{
+    ScreenPtr screen = window->drawable.pScreen;
+    struct xwl_screen *xwl_screen;
+    struct xwl_window *xwl_window;
+
+    xwl_screen = xwl_screen_get(screen);
+    xwl_window = xwl_window_get(window);
+
+    screen->ResizeWindow = xwl_screen->ResizeWindow;
+    (*screen->ResizeWindow) (window, x, y, width, height, sib);
+    xwl_screen->ResizeWindow = screen->ResizeWindow;
+    screen->ResizeWindow = xwl_resize_window;
+
+    if(xwl_window)
+    {
+        xwl_check_fake_mode_setting(xwl_window, width, height);
+    }
+}
+
 static Bool
 xwl_save_screen(ScreenPtr pScreen, int on)
 {
@@ -532,13 +550,6 @@ xwl_screen_post_damage(struct xwl_screen *xwl_screen)
 
         box = RegionExtents(region);
 
-        /*fprintf(stderr, "XWAYLAND: wl_surface_damage: x1: %d, y1: %d, x2: %d, y2: %d, dx: %d, dy: %d\n",
-                (int)box->x1,
-                (int)box->y1,
-                (int)box->x2,
-                (int)box->y2,
-                (int)(box->x2 - box->x1),
-                (int)(box->y2 - box->y1));*/
 
         if(xwl_window->xwl_screen->compositor_version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION)
             wl_surface_damage_buffer(xwl_window->surface, box->x1, box->y1,
@@ -902,6 +913,9 @@ xwl_screen_init(ScreenPtr pScreen, int argc, char **argv)
     xwl_screen->CloseScreen = pScreen->CloseScreen;
     pScreen->CloseScreen = xwl_close_screen;
 
+    xwl_screen->ResizeWindow = pScreen->ResizeWindow;
+    pScreen->ResizeWindow = xwl_resize_window;
+
     pScreen->CursorWarpedTo = xwl_cursor_warped_to;
     pScreen->CursorConfinedTo = xwl_cursor_confined_to;
 
@@ -928,49 +942,64 @@ static const ExtensionModule xwayland_extensions[] = {
 };
 
 void
-xwl_check_fake_mode_setting(struct xwl_window *xwl_window)
+xwl_check_fake_mode_setting(struct xwl_window *xwl_window,
+                            unsigned int width,
+                            unsigned int height)
 {
-    BoxPtr bptr;
-    int x, y;
+    struct xwl_screen *xwl_screen = xwl_window->xwl_screen;
+    int32_t targ_w, targ_h;
 
-    bptr = RegionRects(&xwl_window->window->winSize);
-    x = bptr->x2;
-    y = bptr->y2;
-
-    if(xwl_window->xwl_screen->compositor_version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION
-        && xwl_window->xwl_screen->viewporter != NULL)
+    if(   xwl_screen->current_emulated_width == width
+       && xwl_screen->current_emulated_height == height
+       && xwl_screen->compositor_version >= WL_SURFACE_DAMAGE_BUFFER_SINCE_VERSION
+       && xwl_screen->viewporter != NULL)
     {
-        if(x == 640 || x == 800 || x == 1024)
-        {
-            fprintf(stderr, "XWAYLAND: window: x2: %d, y2: %d\n", x, y);
-            fprintf(stderr, "XWAYLAND: set viewporter\n");
+        ErrorF("XWAYLAND: set viewporter: width: %u, height:%u\n", width, height);
 
-            if(xwl_window->viewport)
-            {
-              fprintf(stderr, "XWAYLAND: viewporter already exists. Removing\n");
-              wp_viewport_destroy(xwl_window->viewport);
-              xwl_window->viewport = NULL;
-            }
-
-            xwl_window->viewport = wp_viewporter_get_viewport(xwl_window->xwl_screen->viewporter,
-                                                              xwl_window->surface);
-            wp_viewport_set_source(xwl_window->viewport,
-                                   wl_fixed_from_int(0),
-                                   wl_fixed_from_int(0),
-                                   wl_fixed_from_int(x),
-                                   wl_fixed_from_int(y-27));
-            wp_viewport_set_destination(xwl_window->viewport, 1366, 768);
-        }
-        else if(xwl_window->viewport)
+        if(xwl_window->viewport)
         {
-            fprintf(stderr, "XWAYLAND: remove old viewporter\n");
-            wp_viewport_destroy(xwl_window->viewport);
-            xwl_window->viewport = NULL;
+          ErrorF("XWAYLAND: viewporter already exists. Removing\n");
+          wp_viewport_destroy(xwl_window->viewport);
+          xwl_window->viewport = NULL;
         }
+
+        xwl_window->viewport = wp_viewporter_get_viewport(xwl_window->xwl_screen->viewporter,
+                                                          xwl_window->surface);
+
+        wp_viewport_set_source(xwl_window->viewport,
+                               wl_fixed_from_int(0),
+                               wl_fixed_from_int(0),
+                               wl_fixed_from_int((int)(width)),
+                               wl_fixed_from_int((int)(height)));
+
+        if(   (width == 640 && height == 480)
+           || (width == 800 && height == 600)
+           || (width == 1024 && height == 768))
+        {
+          targ_w = 1024;
+          targ_h = 768;
+        }
+        else
+        {
+          targ_w = 1366;
+          targ_h = 768;
+        }
+
+        wp_viewport_set_destination(xwl_window->viewport, targ_w, targ_h);
+
+        xwl_window->viewport_coordinates.req_x = (int)(width);
+        xwl_window->viewport_coordinates.req_y = (int)(height);
+        xwl_window->viewport_coordinates.org_x = (int)(targ_w);
+        xwl_window->viewport_coordinates.org_y = (int)(targ_h);
     }
-    else
+    else if(   xwl_window->viewport
+            && ((width == 1366 && height == 768)
+            || (xwl_screen->current_emulated_width == 0
+            && xwl_screen->current_emulated_height == 0)))
     {
-      fprintf(stderr, "XWAYLAND: viewporter not supported\n");
+        ErrorF("XWAYLAND: remove old viewporter\n");
+        wp_viewport_destroy(xwl_window->viewport);
+        xwl_window->viewport = NULL;
     }
 }
 

@@ -55,6 +55,9 @@ struct xwl_screen {
     int expecting_event;
     enum RootClipMode root_clip_mode;
 
+    unsigned int current_emulated_width;
+    unsigned int current_emulated_height;
+
     int wm_fd;
     int listen_fds[5];
     int listen_fd_count;
@@ -68,6 +71,7 @@ struct xwl_screen {
     RealizeWindowProcPtr RealizeWindow;
     UnrealizeWindowProcPtr UnrealizeWindow;
     XYToWindowProcPtr XYToWindow;
+    ResizeWindowProcPtr ResizeWindow;
 
     struct xorg_list output_list;
     struct xorg_list seat_list;
@@ -110,6 +114,12 @@ struct xwl_window {
     struct xwl_screen *xwl_screen;
     struct wl_surface *surface;
     struct wp_viewport *viewport;
+    struct {
+        uint req_x;
+	uint req_y;
+	uint org_x;
+	uint org_y;
+    } viewport_coordinates;
     struct wl_shell_surface *shell_surface;
     WindowPtr window;
     DamagePtr damage;
@@ -347,6 +357,9 @@ Bool xwl_glamor_xv_init(ScreenPtr pScreen);
 void xwlVidModeExtensionInit(void);
 #endif
 
-void xwl_check_fake_mode_setting(struct xwl_window *xwl_window);
+struct xwl_seat *xwl_screen_get_default_seat(struct xwl_screen *xwl_screen);
+void xwl_check_fake_mode_setting(struct xwl_window *xwl_window,
+				 unsigned int width,
+                                 unsigned int height);
 
 #endif
